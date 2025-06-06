@@ -1,0 +1,180 @@
+---
+title: "EDA"
+output: html_document
+---
+
+```{r}
+library(tidytuesdayR)
+library(tidyverse)
+```
+```{r}
+tuesdata <- tidytuesdayR::tt_load(2025, week = 22)
+
+gutenberg_authors <- tuesdata$gutenberg_authors
+gutenberg_languages <- tuesdata$gutenberg_languages
+gutenberg_metadata <- tuesdata$gutenberg_metadata
+gutenberg_subjects <- tuesdata$gutenberg_subjects
+```
+# How many different languages are available in the Project Gutenberg collection? How many books are available in each language?
+```{r}
+gutenberg_languages |>
+  count(language) |>
+  rename(books_count = n) |>
+  arrange(desc(books_count))
+```
+# Do any authors appear under more than one gutenberg_author_id?
+```{r}
+gutenberg_authors |>
+  right_join(tibble(id = 1:max(gutenberg_authors$gutenberg_author_id)), by = c("gutenberg_author_id" = "id")) |>
+  filter(is.na(author))
+```
+```{r}
+duplicate_authors <- gutenberg_authors |>
+  group_by(author) |>
+  summarise(count = n()) |>
+  filter(count > 1) |>
+  pull(author)
+```
+```{r}
+gutenberg_authors |>
+  filter(author %in% duplicate_authors) |>
+  arrange(author) |>
+  select(-alias)
+```
+
+# Filtering by authors' name or wiki didn't work
+```{r}
+duplicate_wiki <- gutenberg_authors |>
+  group_by(wikipedia) |>
+  summarise(count = n()) |>
+  filter(count > 1) |>
+  pull(wikipedia)
+```
+```{r}
+gutenberg_authors |>
+  filter(wikipedia %in% duplicate_wiki) |>
+  select(gutenberg_author_id, author, wikipedia) |>
+  arrange(wikipedia)
+```
+```{r}
+gutenberg_authors |>
+  group_by(author, birthdate, deathdate) |>
+  filter(n() > 1)
+```
+# How might the {gutenbergr} package authors further refine the data for greater ease-of-use?
+```{r}
+gutenberg_metadata |>
+  names()
+```
+```{r}
+gutenberg_authors |>
+  names()
+```
+```{r}
+gutenberg_subjects |>
+  names()
+```
+```{r}
+gutenberg_languages |>
+  names()
+```
+```{r}
+gutenberg_metadata |>
+  group_by(title, gutenberg_author_id) |>
+  filter(n() > 1) |>
+  arrange(title)
+```
+```{r}
+gutenberg_metadata |>
+  filter(nchar(language) > 2)
+```
+```{r}
+gutenberg_metadata |>
+  group_by(gutenberg_author_id) |>
+  filter(!is.na(gutenberg_author_id)) |>
+  summarise(work_count = n()) |>
+  slice_max(work_count, n = 10) |>
+  left_join(gutenberg_authors |> select(1:2))
+```
+```{r}
+gutenberg_metadata |>
+  group_by(gutenberg_author_id) |>
+  filter(!is.na(gutenberg_author_id), !(gutenberg_author_id %in% c(116,216))) |>
+  summarise(
+    languages = n_distinct(language)
+  ) |>
+  slice_max(languages, n = 5) |>
+  left_join(gutenberg_authors |> select(1:2))
+```
+```{r}
+gutenberg_metadata |>
+  distinct(gutenberg_bookshelf) |>
+  separate_wider_delim(
+        gutenberg_bookshelf,
+        delim = c(": "),
+        names = c("level1", "level2", "level3", "level4"),
+        too_few = "align_start",
+        too_many = "drop"
+      ) |>
+  distinct(level1) |>
+  filter(!str_detect(level1, "Browsing"))
+```
+```{r}
+gutenberg_metadata |>
+  count(rights)
+```
+```{r}
+gutenberg_subjects |>
+  left_join(gutenberg_metadata |> select(1:2)) |>
+  filter(subject_type == "lcc") |>
+  View()
+
+gutenberg_subjects |>
+  left_join(gutenberg_metadata |> select(1:2)) |>
+  filter(subject_type == "lcc") |>
+  filter(!is.na(subject)) |>
+  separate_wider_regex(
+    col = subject,
+    patterns = c(level1 = ".", level2 = ".*$")
+  ) |>
+  mutate(
+    level1 = fct_lump_n(fct(level1), 5)
+  ) |>
+  ggplot(aes(x = fct_infreq(level1), fill = fct_infreq(level1))) +
+  geom_bar() +
+  labs(x = "Class", y = "Books count", caption = "P — LANGUAGE AND LITERATURE
+D — WORLD HISTORY AND HISTORY OF EUROPE, ASIA, ETC.
+B — PHILOSOPHY. PSYCHOLOGY. RELIGION
+Q — SCIENCE
+A — GENERAL WORKS
+") +
+  theme(legend.position = "none")
+  
+```
+```{r}
+ggsave(
+  filename = "books by classes.png",
+  height = 5,
+  width = 5,
+  units = "in",
+  dpi = 300
+)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
