@@ -129,6 +129,8 @@ gutenberg_subjects |>
   filter(subject_type == "lcc") |>
   View()
 
+# Plot
+
 gutenberg_subjects |>
   left_join(gutenberg_metadata |> select(1:2)) |>
   filter(subject_type == "lcc") |>
