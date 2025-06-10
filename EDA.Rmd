@@ -1,0 +1,303 @@
+---
+title: "EDA"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(tidytuesdayR)
+```
+
+```{r}
+tuesdata <- tidytuesdayR::tt_load(2025, week = 20)
+
+water_quality <- tuesdata$water_quality |>
+  rename(lat = latitude, lon = longitude)
+weather <- tuesdata$weather |>
+  rename(lat = latitude, lon = longitude)
+```
+
+```{r}
+water_quality |>
+  group_by(region) |>
+  summarise(max_1 = max(lat), min_1 = min(lat), max_2 = max(lon), min_2 = min(lon))
+
+water_quality |>
+  distinct(region, swim_site) |>
+  arrange(swim_site)
+
+water_quality |>
+  distinct(council, swim_site) |>
+  group_by(swim_site) |>
+  filter(n() == 1)
+
+water_quality |>
+  distinct(swim_site, lat, lon) |>
+  group_by(swim_site) |>
+  filter(n() > 1)
+
+water_quality |>
+  group_by(swim_site) |>
+  summarise(
+    min_date = min(date),
+    max_date = max(date)
+  )
+
+water_quality |>
+  filter(swim_site == "Camp Cove")
+
+summary(water_quality$enterococci_cfu_100ml)
+
+water_quality |>
+  filter(enterococci_cfu_100ml %% 1 != 0)
+
+summary(water_quality$water_temperature_c)
+
+water_quality |>
+  filter(water_temperature_c < 9.5 | water_temperature_c > 29.5) |>
+  print(n = Inf)
+  
+summary(water_quality$conductivity_ms_cm)
+
+water_quality |>
+  slice_sample(n = 10000) |>
+  ggplot(aes(conductivity_ms_cm)) +
+  geom_histogram()
+``` 
+
+```{r}
+weather |>
+  select(precipitation_mm) |>
+  filter(precipitation_mm > 30)
+  print(n = 50)
+```
+
+# Has the water quality declined over this period
+```{r}
+little_manly_cove <- water_quality |>
+  filter(swim_site == "Little Manly Cove")
+```
+
+```{r}
+library(lubridate)
+
+summary(little_manly_cove$date)
+
+little_manly_cove |>
+  mutate(year = year(date)) |>
+  group_by(year) |>
+  summarise(
+    avg = mean(enterococci_cfu_100ml),
+    n = n()
+  ) |>
+  ggplot(aes(year, avg)) +
+    geom_point() +
+  scale_y_log10() +
+  geom_smooth()
+
+water_quality |>
+  mutate(year = year(date)) |>
+  group_by(year) |>
+  summarise(
+    avg = mean(enterococci_cfu_100ml, na.rm = TRUE),
+    n = n()
+  ) |>
+  ggplot(aes(year, avg)) +
+    geom_point() +
+  scale_y_log10() +
+  geom_smooth() +
+  labs(
+    subtitle = "Enterococci level declined over the years but is starting to increase again",
+    x = "Year",
+    y = "Enterococci level"
+  )
+
+ggsave(
+  filename = "bacteria-level.png",
+  height = 4.5,
+  width = 6,
+  units = "in",
+  dpi = 300
+)
+```
+
+# How does rainfall impact E-coli bacteria levels?
+
+```{r}
+average_water_quality_2025 <- water_quality |>
+  filter(year(date) == 2025, !is.na(enterococci_cfu_100ml)) |>
+  group_by(date) |>
+  summarise(
+    avg_enterococci_cfu = mean(enterococci_cfu_100ml),
+    n = n()
+  )
+
+average_water_quality_2025 |>
+  left_join(weather |> select(date, precipitation_mm), by = c("date")) |>
+  pivot_longer(cols = c(avg_enterococci_cfu, precipitation_mm), 
+               names_to = "metric", 
+               values_to = "value") |>
+  ggplot(aes(date, value, color = metric)) +
+  geom_line() +
+  scale_x_date(breaks = "15 days", date_labels = "%m/%d") +
+  scale_y_log10() +
+  labs(
+    x = "Date",
+    y = "",
+    tittle = "Enterococci level seems to collerate with percipitation",
+    subtitle = "Every spike in precipitation seems to predict a spike in enterococci level"
+  ) 
+
+ggsave(
+  filename = "precipitation_vs_enterococci_level.png",
+  height = 4.5,
+  width = 6,
+  units = "in",
+  dpi = 300
+)
+```
+
+```{r}
+weather |>
+  filter(year(date) == 2025) |>
+  ggplot(aes(date, precipitation_mm)) +
+  geom_line()
+
+water_quality |>
+  filter(year(date) == 2025, !is.na(enterococci_cfu_100ml)) |>
+  left_join(weather |> select(date, precipitation_mm), by = c("date")) |>
+  ggplot(aes(enterococci_cfu_100ml, precipitation_mm)) +
+  geom_point()
+```
+
+# Are some swimming sites particularly prone to high bacteria levels following rain?
+
+```{r}
+average_water_quality_2025 |>
+  left_join(weather |> select(date, precipitation_mm), by = c("date")) |>
+  pivot_longer(cols = c(avg_enterococci_cfu, precipitation_mm), 
+               names_to = "metric", 
+               values_to = "value")
+
+water_quality |>
+  count(lat, lon, sort = TRUE)
+
+water_quality |>
+  filter(year(date) == 2025, !is.na(enterococci_cfu_100ml)) |>
+  group_by(region, date) |>
+  summarise(
+    avg_enterococci_cfu = mean(enterococci_cfu_100ml),
+    n = n()
+  ) |>
+  left_join(weather |> select(date, precipitation_mm), by = c("date"), relationship = "many-to-one") |>
+  pivot_longer(cols = c(avg_enterococci_cfu, precipitation_mm), 
+               names_to = "metric", 
+               values_to = "value") |>
+  ggplot(aes(date, value, color = metric)) +
+  geom_line() +
+  facet_wrap(~ region) +
+  scale_x_date(breaks = "15 days", date_labels = "%m/%d") +
+  scale_y_log10()
+```
+
+# Analyze bacteria levels against rain in different regions
+
+```{r}
+water_quality |>
+  group_by(region) |>
+  summarise(
+    swim_site_count = n_distinct(swim_site),
+    n = n()
+  )
+
+water_quality |>
+  filter(region == "Western Sydney", year(date) == 2025, !is.na(enterococci_cfu_100ml)) |>
+  group_by(swim_site, date) |>
+  summarise(
+    avg_enterococci_cfu = mean(enterococci_cfu_100ml),
+    n = n()
+  ) |>
+  left_join(weather |> select(date, precipitation_mm), by = c("date"), relationship = "many-to-one") |>
+  pivot_longer(cols = c(avg_enterococci_cfu, precipitation_mm), 
+               names_to = "metric", 
+               values_to = "value") |>
+  ggplot(aes(date, value, color = metric)) +
+  geom_line() +
+  facet_wrap(~ swim_site) +
+  scale_x_date(breaks = "15 days", date_labels = "%m/%d") +
+  scale_y_log10()
+```
+
+# Swim sites in Southern Sydney are particularly prone to high bateria levels following rain
+
+```{r}
+water_quality |>
+  filter(region == "Southern Sydney", year(date) == 2025, !is.na(enterococci_cfu_100ml)) |>
+  group_by(swim_site, date) |>
+  summarise(
+    avg_enterococci_cfu = mean(enterococci_cfu_100ml),
+    n = n()
+  ) |>
+  left_join(weather |> select(date, precipitation_mm), by = c("date"), relationship = "many-to-one") |>
+  pivot_longer(cols = c(avg_enterococci_cfu, precipitation_mm), 
+               names_to = "metric", 
+               values_to = "value") |>
+  ggplot(aes(date, value, color = metric)) +
+  geom_line() +
+  facet_wrap(~ swim_site) +
+  scale_x_date(breaks = "15 days", date_labels = "%m/%d") +
+  scale_y_log10()
+```
+
+# How about swim sites in Sydney City?
+
+```{r}
+water_quality |>
+  filter(region == "Sydney City", year(date) == 2025, !is.na(enterococci_cfu_100ml)) |>
+  group_by(swim_site, date) |>
+  summarise(
+    avg_enterococci_cfu = mean(enterococci_cfu_100ml),
+    n = n()
+  ) |>
+  left_join(weather |> select(date, precipitation_mm), by = c("date"), relationship = "many-to-one") |>
+  pivot_longer(cols = c(avg_enterococci_cfu, precipitation_mm), 
+               names_to = "metric", 
+               values_to = "value") |>
+  ggplot(aes(date, value, color = metric)) +
+  geom_line() +
+  facet_wrap(~ swim_site) +
+  scale_x_date(breaks = "15 days", date_labels = "%m/%d") +
+  scale_y_log10()
+```
+
+
+```{r}
+water_quality |>
+  filter(region == "Northern Sydney", year(date) == 2025, !is.na(enterococci_cfu_100ml)) |>
+  group_by(swim_site, date) |>
+  summarise(
+    avg_enterococci_cfu = mean(enterococci_cfu_100ml),
+    n = n()
+  ) |>
+  left_join(weather |> select(date, precipitation_mm), by = c("date"), relationship = "many-to-one") |>
+  pivot_longer(cols = c(avg_enterococci_cfu, precipitation_mm), 
+               names_to = "metric", 
+               values_to = "value") |>
+  ggplot(aes(date, value, color = metric)) +
+  geom_line() +
+  facet_wrap(~ swim_site) +
+  scale_x_date(breaks = "15 days", date_labels = "%m/%d") +
+  scale_y_log10()
+```
+
+
+
+
+
+
+
+
+
+
+
+
