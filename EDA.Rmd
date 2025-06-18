@@ -1,0 +1,157 @@
+---
+title: "EDA"
+output: html_document
+---
+# Load data
+```{r}
+library(tidyverse)
+library(tidytuesdayR)
+```
+
+
+```{r}
+tuesdata <- tidytuesdayR::tt_load(2025, week = 23)
+
+judges_appointments <- tuesdata$judges_appointments |>
+  mutate(across(ends_with("date"), mdy))
+judges_people <- tuesdata$judges_people
+```
+
+```{r}
+#write_csv(judges_appointments, "judges_appointments.csv")
+```
+
+
+# Look at each column
+
+```{r}
+judges_appointments |>
+  select(judge_id) |>
+  print(n = 100)
+
+
+complete_sequence <- tibble(judge_id = seq(from = min(judges_appointments$judge_id), to = max(judges_appointments$judge_id)))
+
+complete_sequence |>
+  anti_join(judges_appointments) |>
+  anti_join(complete_sequence |> anti_join(judges_people))
+
+complete_sequence |>
+  anti_join(judges_people) |>
+  print(n = 50)
+
+judges_appointments |>
+  count(judge_id, sort = T) |>
+  filter(n > 1) |>
+  print(n = Inf)
+
+judges_appointments |>
+  filter(judge_id == 2689) |>
+  View()
+
+judges_appointments |>
+  count(court_name, sort = TRUE) |>
+  View()
+
+judges_appointments |>
+  count(court_type, sort = TRUE)
+
+judges_appointments |>
+  count(president_name, sort = TRUE) |>
+  print(n = 50)
+
+length(unique(judges_appointments$president_name))
+
+judges_appointments |>
+  filter(!president_party %in% c("Reassignment", "Assignment")) |>
+  distinct(president_name, president_party) |>
+  arrange(president_name) |>
+  print(n = 50)
+```
+
+# How many judges have Pacific Islander as part of their designated race?
+
+```{r}
+judges_people |>
+  count(race)
+```
+
+# Which Presidents appointed the most judges? The fewest?
+
+```{r}
+judges_appointments |>
+  group_by(president_name) |>
+  summarise(
+    unique_judges = n_distinct(judge_id),
+    n = n()
+  ) |>
+  arrange(desc(unique_judges))
+```
+
+# Which political parties have appointed the most judges to courts of customs or internation trade? Due to some coding issues in the current version of the {historydata} package, you may need to combine some terms to find all such appointments.
+
+```{r}
+judges_appointments |>
+  filter(court_type %in% c("U. S. Court of Customs and Patent Appeals", "U. S. Court of International Trade", "U. S. Court of Inter", "U. S. Court of Custo")) |>
+  count(president_party, sort = TRUE)
+```
+
+# Making some kind of plot
+
+```{r}
+judges_appointments |>
+  filter(!president_name %in% c("Assignment", "Reassignment")) |>
+  group_by(president_name, president_party) |>
+  summarise(
+    min_date = min(nomination_date, na.rm = T),
+    max_date = max(nomination_date, na.rm = T),
+    n = n()
+  ) |>
+  arrange(max_date) |>
+  print(n = 50) |>
+  ggplot(aes(reorder(president_name, max_date), n, fill = president_party)) +
+  geom_col() +
+  coord_flip()
+
+judges_appointments |>
+  ggplot(aes(4 * (year(nomination_date) %/% 4))) +
+  geom_bar()
+
+judges_appointments |>
+  filter(president_name == "John F. Kennedy") |>
+  View()
+
+judges_appointments |>
+  filter(!president_name %in% c("Assignment", "Reassignment")) |>
+  group_by(president_name) |>
+  mutate(max_date = max(nomination_date)) |>
+  ungroup() |>
+  mutate(president_num = dense_rank(desc(max_date))) |>
+  filter(president_num <= 10) |>
+  ggplot(aes(reorder(president_name, nomination_date, .na_rm = TRUE), fill = president_party)) +
+  geom_bar() +
+  coord_flip() +
+  labs(
+    x = "President name",
+    y = "# judges appointed",
+    fill = "Party",
+    title = "Judge appointments last 10 presidential terms"
+  )
+```
+
+```{r}
+ggsave(
+  filename = "judges-appointed-last-10.png",
+  height = 5,
+  width = 7,
+  units = "in",
+  dpi = 300
+)
+```
+
+
+
+
+
+
+
