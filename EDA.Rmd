@@ -1,0 +1,216 @@
+---
+title: "EDA"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(tidytuesdayR)
+```
+
+```{r}
+tuesdata <- tidytuesdayR::tt_load(2025, week = 25)
+
+cases_month <- tuesdata$cases_month
+cases_year <- tuesdata$cases_year
+```
+
+# Columns exploration
+
+```{r}
+cases_month |>
+  count(region)
+
+cases_month |>
+  count(country)
+
+cases_month |>
+  distinct(region, country)
+
+cases_month |>
+  group_by(region) |>
+  summarise(
+    countries = n_distinct(country)
+  )
+
+summary(cases_month$year)
+
+cases_month |>
+  filter(str_detect(country, "United")) |>
+  count(country)
+
+cases_month |>
+  group_by(year) |>
+  summarise(
+    reported_countries = n_distinct(country)
+  )
+
+cases_month |> 
+  filter(country == "Viet Nam") |>
+  group_by(year) |>
+  summarise(
+    across(measles_suspect:measles_total, sum)
+  ) |>
+  select(-year) |>
+  View()
+
+cases_month |>
+  filter(measles_total != measles_clinical + measles_epi_linked + measles_lab_confirmed)
+
+cases_month |>
+  filter(year == 2024) |>
+  group_by(month) |>
+  summarise(
+    sum = sum(measles_total)
+  ) |>
+  ggplot() +
+  geom_col(aes(month, sum))
+
+cases_month |>
+  select(starts_with("measles"), discarded) |>
+  View()
+
+cases_month |>
+  filter(measles_suspect != measles_total + discarded, discarded > 0) |>
+  View()
+
+cases_year |>
+  filter(total_population != annualized_population_most_recent_year_only) |>
+  View()
+
+cases_year |>
+  mutate(
+    calculated_measles_rate = round(measles_total/annualized_population_most_recent_year_only * 1000000, 2)
+  ) |>
+  select(measles_total, measles_incidence_rate_per_1000000_total_population, calculated_measles_rate) |>
+  filter(measles_incidence_rate_per_1000000_total_population != calculated_measles_rate) |>
+  View()
+
+cases_year |>
+  select(total_suspected_measles_rubella_cases, measles_total, rubella_total, discarded_cases) |>
+  filter(total_suspected_measles_rubella_cases != measles_total + rubella_total + discarded_cases) |>
+  mutate(sum = measles_total + rubella_total + discarded_cases) |>
+  View()
+
+cases_year |>
+  mutate(
+    calculated_discarded = round(discarded_cases/annualized_population_most_recent_year_only * 100000, 2)
+  ) |>
+  select(discarded_cases, discarded_non_measles_rubella_cases_per_100000_total_population, calculated_discarded) |>
+  filter(discarded_non_measles_rubella_cases_per_100000_total_population != calculated_discarded) |>
+  View()
+```
+
+# How have global measles cases changed over time?
+
+```{r}
+cases_year |>
+  group_by(year) |>
+  summarise(
+    annual_measles_cases = sum(measles_total)
+  ) |>
+  ggplot(aes(x = year, y = annual_measles_cases)) +
+  geom_line() +
+  scale_x_continuous(breaks = seq(2012, 2025, 1))
+```
+
+# Which regions or countries consistently report the highest measles burden?
+
+```{r}
+cases_year |>
+  group_by(region, year) |>
+  summarise(
+    annual_measles_cases = sum(measles_total),
+    .groups = "drop"
+  ) |>
+  ggplot(aes(x = year, y = annual_measles_cases, fill = region)) +
+  geom_area() +
+  facet_wrap(~region)
+```
+
+```{r}
+cases_year |>
+  group_by(year) |>
+  mutate(rank = rank(-measles_total, ties.method = "first")) %>%
+  filter(rank <= 5) %>%
+  ungroup() |>
+  ggplot(aes(x = year, y = rank, color = country)) +
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 3) +
+  scale_y_reverse(breaks = 1:5, labels = paste("Rank", 1:5))
+```
+
+```{r}
+cases_year |>
+  group_by(year) |>
+  slice_max(measles_total, n = 5) %>%
+  ungroup() |>
+  ggplot(aes(x = year, y = measles_total, color = country)) +
+  geom_line() +
+  geom_point()
+  
+```
+
+```{r}
+top_5_countries <- cases_year |>
+  group_by(country) |>
+  summarise(
+    avg_measles = mean(measles_total),
+    .groups = "drop"
+  ) |>
+  slice_max(avg_measles, n = 5) %>%
+  pull(country)
+
+cases_year %>%
+  filter(country %in% top_5_countries) %>%
+  ggplot(aes(x = year, y = measles_total, color = country)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2)
+```
+
+# Are there seasonal patterns in measles outbreaks across different regions?
+
+```{r}
+cases_month |>
+  filter(year == 2024) |>
+  mutate(
+    month = month(month, label = TRUE, abbr = TRUE)
+  ) |>
+  ggplot(aes(x = month, y = measles_total)) +
+  geom_boxplot(aes(fill = month)) +
+  facet_wrap(~region)
+
+cases_month |>
+  group_by(region, year, month) |>
+  mutate(
+    seasonal_regional_total = sum(measles_total, na.rm = TRUE)
+  ) |>
+  ungroup() |>
+  mutate(
+    month = month(month, label = TRUE, abbr = TRUE)
+  ) |>
+  ggplot(aes(x = month, y = year, fill = seasonal_regional_total)) +
+  geom_tile(color = "white", size = 0.1) +
+  scale_fill_gradient2(low = "white", mid = "yellow", high = "red", 
+                      , name = "Cases") +
+  facet_wrap(~region)
+```
+
+```{r}
+ggsave(
+  filename = "test.png",
+  height = 7,
+  width = 13,
+  units = "in"
+)
+```
+
+
+
+
+
+
+
+
+
+
