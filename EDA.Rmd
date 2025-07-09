@@ -1,0 +1,161 @@
+---
+title: "EDA"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(tidytuesdayR)
+```
+
+```{r}
+tuesdata <- tidytuesdayR::tt_load(2025, week = 27)
+
+answers <- tuesdata$answers
+color_ranks <- tuesdata$color_ranks
+users <- tuesdata$users
+
+joined_answer <- answers |>
+  left_join(color_ranks |> select(1:2), by = c("rank" = "rank"))
+```
+
+```{r}
+hex_to_hsv <- function(hex_color) {
+  rgb_vals <- col2rgb(hex_color) / 255
+  rgb2hsv(rgb_vals)
+}
+
+sort_by_hue <- function(colors) {
+  hue_values <- sapply(colors, function(x) hex_to_hsv(x)[1])
+  colors[order(hue_values)]
+}
+
+sort_by_saturation <- function(colors) {
+  sat_values <- sapply(colors, function(x) hex_to_hsv(x)[2])
+  colors[order(sat_values)]
+}
+```
+
+
+```{r}
+hex_color_sorted <- sort_by_hue(hex_color)
+
+color_data <- data.frame(
+  color = hex_color_sorted,
+  position = 1:length(hex_color_sorted),
+  label = paste0("Color ", 1:length(hex_color_sorted), "\n", hex_color_sorted)
+)
+
+n_colors <- length(hex_color_sorted)
+n_cols <- ceiling(sqrt(n_colors))  # Number of columns
+n_rows <- ceiling(n_colors / n_cols)
+
+color_data_grid <- color_data %>%
+  mutate(row = rep(1:n_rows, each = n_cols, length.out = n_colors),
+         col = rep(1:n_cols, times = n_rows, length.out = n_colors)) %>%
+  # Reverse row order so it displays top to bottom
+  mutate(row = max(row) - row + 1)
+
+ggplot(color_data_grid, aes(x = col, y = row, fill = color)) +
+  geom_tile(width = 0.9, height = 0.9, color = "white", size = 3) +
+  scale_fill_identity() +
+  theme_void()
+```
+
+```{r}
+joined_answer |>
+  filter(color == "brown") |>
+  inner_join(joined_answer |> filter(color == "blue"), by = c("hex" = "hex")) |>
+  count(hex, sort = TRUE) |>
+  filter(n == 1) |>
+  pull(hex)
+```
+
+```{r}
+joined_answer |>
+  filter(color == "brown") |>
+  inner_join(joined_answer |> filter(color == "blue"), by = c("hex" = "hex")) |>
+  inner_join(joined_answer |> filter(color == "green"), by = c("hex" = "hex"))
+```
+
+```{r}
+hex_color <- joined_answer |>
+  filter(color == "brown") |>
+  distinct(hex, .keep_all = TRUE) |>
+  inner_join(joined_answer |> filter(color == "pink") |> distinct(hex, .keep_all = TRUE), by = c("hex" = "hex")) |>
+  pull(hex)
+```
+
+```{r}
+grouped_answer <- joined_answer |>
+  distinct(color, hex) %>%
+  arrange(color, hex) |>
+  # For each value, get all categories that have it
+  group_by(hex) %>%
+  summarise(colors = list(color), .groups = "drop") %>%
+  # Keep only values that appear in multiple categories
+  filter(lengths(colors) > 1)
+```
+
+```{r}
+mirrored_grouped_answer <- grouped_answer |>
+  filter(lengths(colors) == 2) |>
+  unnest_wider(colors, names_sep = "_") |>
+  select(
+    colors_2 = colors_1,
+    colors_1 = colors_2
+  )
+```
+
+
+```{r}
+grouped_answer |>
+  filter(lengths(colors) == 2) |>
+  unnest_wider(colors, names_sep = "_") |>
+  bind_rows(mirrored_grouped_answer) |>
+  count(colors_1, colors_2) |>
+  complete(colors_1 = c("blue", "brown", "green", "pink", "purple"), colors_2 = c("blue", "brown", "green", "pink", "purple"), fill = list(n = 0)) |>
+  ggplot(aes(x = colors_1, y = colors_2)) +
+  geom_text(aes(label = n), size = 3, fontface = "bold") +
+  labs(
+    x = "Color 1",
+    y = "Color 2",
+    title = 
+  )
+```
+
+```{r}
+color <- grouped_answer |>
+  filter(lengths(colors) > 2) |>
+  pull(hex)
+
+color_df <- data.frame(
+  color = color,
+  x = 1:length(color),
+  y = 1
+)
+
+ggplot(color_df, aes(x = x, y = y, fill = color)) +
+  geom_tile() +
+  geom_text(aes(label = color), color = "white", fontface = "bold", size = 5) +
+  scale_fill_identity()  +
+  scale_x_continuous(breaks = NULL) +
+  scale_y_continuous(breaks = NULL) +
+  theme_minimal() +
+  labs(
+    x = "x-axis",
+    y = "y-axis",
+    title = "The only color that has been labelled as blue, green and purple",
+    subtitle = "A lot of colors are interpreted by users as blue and green, blue and purple, purple and green \nbut not all three at the same time"
+  )
+
+ggsave(
+  filename = "hex_colors.jpg",
+  height = 5,
+  width = 7,
+  units = "in",
+  dpi = 300
+)
+```
+
+
