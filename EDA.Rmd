@@ -1,0 +1,97 @@
+---
+title: "EDA"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(tidytuesdayR)
+```
+
+```{r}
+tuesdata <- tidytuesdayR::tt_load(2025, week = 28)
+
+bl_funding <- tuesdata$bl_funding
+```
+
+# Columns exploration
+
+```{r}
+bl_funding |>
+  select(year, nominal_gbp_millions, year_2000_gbp_millions) |>
+  view()
+
+bl_funding |>
+  select(year, nominal_gbp_millions, total_y2000_gbp_millions) |>
+  view()
+
+bl_funding |>
+  mutate(
+    calculated_y2000_gbp = nominal_gbp_millions / inflation_adjustment * 1000000
+  ) |>
+  select(year, nominal_gbp_millions, calculated_y2000_gbp, total_y2000_gbp_millions) |>
+  View()
+```
+
+calculated_y2000_gbp = nominal_gbp_millions / inflation_adjustment * 1000000
+
+# What is the most variable source of income? What is the most consistent?
+
+```{r}
+bl_funding_y2000 <- bl_funding |>
+  pivot_longer(
+    cols = ends_with("_y2000_gbp_millions"),
+    names_to = c("income_type", "currency_type"),
+    values_to = c("amount"),
+    names_pattern = "(.*)_(y2000_gbp_millions)"
+  ) |>
+  select(year, income_type, amount, currency_type) 
+
+bl_funding_y2000|>
+  filter(income_type != "total") |>
+  ggplot(aes(x = year, y = amount, color = income_type)) +
+  geom_line(linewidth = 1)
+```
+
+# Does that analysis change when adjusted for inflation?
+
+```{r}
+bl_funding |>
+  pivot_longer(
+    cols = ends_with("_gbp_millions") & !ends_with("2000_gbp_millions"),
+    names_to = c("income_type", "currency_type"),
+    values_to = c("amount"),
+    names_pattern = "(.*)_(gbp_millions)"
+  ) |>
+  select(year, income_type, amount, currency_type) |>
+  bind_rows(bl_funding_y2000) |>
+  filter(!income_type %in% c("nominal", "total")) |>
+  ggplot(aes(x = year, y = amount, color = fct_reorder(income_type, -amount))) +
+  geom_line(linewidth = 1) +
+  scale_color_discrete(name = "Income Type", 
+                     labels = c("Grant-in-aid", "Voluntary", "Investment", "Services", "Other")) +
+  facet_wrap(~currency_type, labeller = as_labeller(c("gbp_millions" = "Nominal",
+                  "y2000_gbp_millions" = "Inflation Adjusted"))) +
+  labs(
+    x = "Year",
+    y = "Amount (GBP millions)",
+    title = "British Library Funding, Nominal vs Inflation Adjusted",
+    subtitle = "While everything else stays pretty much the same, grant-in-aid funding actually\ndeclines when accounting for inflation"
+  )
+```
+
+```{r}
+ggsave(
+  filename = "nominal_vs_inflation_adjusted.jpg",
+  height = 5,
+  width = 7,
+  units = "in",
+  dpi = 300
+)
+```
+
+
+
+
+
+
